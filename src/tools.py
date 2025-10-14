@@ -11,6 +11,8 @@ from mcp.types import Tool, TextContent
 from .fontlab_bridge import FontLabBridge
 from .utils.validation import (
     ValidationError,
+    RequestSizeError,
+    validate_request_size,
     sanitize_for_python,
     validate_glyph_name,
     validate_export_path,
@@ -322,6 +324,109 @@ def register_tools() -> list[Tool]:
                 "required": ["left", "right"],
             },
         ),
+        Tool(
+            name="add_component",
+            description="Add a component reference to a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Target glyph name",
+                    },
+                    "base_glyph": {
+                        "type": "string",
+                        "description": "Base glyph to reference",
+                    },
+                    "x_offset": {
+                        "type": "number",
+                        "description": "Horizontal offset (default 0)",
+                        "default": 0,
+                    },
+                    "y_offset": {
+                        "type": "number",
+                        "description": "Vertical offset (default 0)",
+                        "default": 0,
+                    },
+                },
+                "required": ["glyph_name", "base_glyph"],
+            },
+        ),
+        Tool(
+            name="decompose_glyph",
+            description="Decompose all components in a glyph to outlines",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
+            name="reverse_contours",
+            description="Reverse the direction of all contours in a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
+            name="remove_overlaps",
+            description="Remove overlapping paths in a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
+            name="set_feature_code",
+            description="Set OpenType feature code for the font",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "features": {
+                        "type": "string",
+                        "description": "OpenType feature code in Adobe FEA syntax",
+                    },
+                },
+                "required": ["features"],
+            },
+        ),
+        Tool(
+            name="create_glyph_class",
+            description="Create or update a glyph class",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "class_name": {
+                        "type": "string",
+                        "description": "Class name (without @ prefix)",
+                    },
+                    "glyphs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of glyph names in the class",
+                    },
+                },
+                "required": ["class_name", "glyphs"],
+            },
+        ),
     ]
 
 
@@ -342,6 +447,14 @@ async def handle_call_tool(
     Raises:
         ValueError: If tool name is unknown
     """
+    # SECURITY: Validate request size before processing
+    try:
+        validate_request_size(arguments, max_size_bytes=1_000_000)  # 1MB limit
+    except RequestSizeError as e:
+        logger.error(f"Request size exceeded for tool {name}: {e}")
+        error_result = {"success": False, "error": "Request too large"}
+        return [TextContent(type="text", text=json.dumps(error_result, indent=2))]
+
     if name == "create_glyph":
         result = await _create_glyph(arguments, bridge)
 
@@ -383,6 +496,24 @@ async def handle_call_tool(
 
     elif name == "remove_kerning_pair":
         result = await _remove_kerning_pair(arguments, bridge)
+
+    elif name == "add_component":
+        result = await _add_component(arguments, bridge)
+
+    elif name == "decompose_glyph":
+        result = await _decompose_glyph(arguments, bridge)
+
+    elif name == "reverse_contours":
+        result = await _reverse_contours(arguments, bridge)
+
+    elif name == "remove_overlaps":
+        result = await _remove_overlaps(arguments, bridge)
+
+    elif name == "set_feature_code":
+        result = await _set_feature_code(arguments, bridge)
+
+    elif name == "create_glyph_class":
+        result = await _create_glyph_class(arguments, bridge)
 
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -761,4 +892,770 @@ with open(sys.argv[-1], 'w') as f:
         return await bridge.execute_script(script)
     except ValidationError as e:
         logger.error(f"Validation error in delete_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _rename_glyph(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Rename a glyph."""
+    try:
+        old_name = validate_glyph_name(args["old_name"])
+        new_name = validate_glyph_name(args["new_name"])
+
+        old_name_safe = sanitize_for_python(old_name)
+        new_name_safe = sanitize_for_python(new_name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({old_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {old_name_safe}"}}
+        else:
+            # Check if new name already exists
+            existing = font.findGlyph({new_name_safe})
+            if existing is not None:
+                result = {{"success": False, "error": f"Glyph already exists with name: {new_name_safe}"}}
+            else:
+                glyph.name = {new_name_safe}
+                glyph.update()
+                font.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Glyph renamed successfully",
+                    "data": {{
+                        "old_name": {old_name_safe},
+                        "new_name": glyph.name
+                    }}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        logger.info(f"Renaming glyph {old_name} to {new_name}")
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in rename_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _duplicate_glyph(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Duplicate a glyph."""
+    try:
+        name = validate_glyph_name(args["name"])
+        new_name = validate_glyph_name(args["new_name"])
+
+        name_safe = sanitize_for_python(name)
+        new_name_safe = sanitize_for_python(new_name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            # Check if new name already exists
+            existing = font.findGlyph({new_name_safe})
+            if existing is not None:
+                result = {{"success": False, "error": f"Glyph already exists with name: {new_name_safe}"}}
+            else:
+                # Clone the glyph
+                new_glyph = glyph.clone()
+                new_glyph.name = {new_name_safe}
+                font.addGlyph(new_glyph)
+                font.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Glyph duplicated successfully",
+                    "data": {{
+                        "source": {name_safe},
+                        "duplicate": new_glyph.name,
+                        "width": new_glyph.width
+                    }}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        logger.info(f"Duplicating glyph {name} as {new_name}")
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in duplicate_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _set_glyph_sidebearings(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Set glyph sidebearings."""
+    try:
+        name = validate_glyph_name(args["name"])
+        lsb = args.get("lsb")
+        rsb = args.get("rsb")
+
+        if lsb is None and rsb is None:
+            return {"success": False, "error": "At least one of lsb or rsb must be provided"}
+
+        name_safe = sanitize_for_python(name)
+
+        # Build the script conditionally based on what's provided
+        lsb_line = ""
+        rsb_line = ""
+        if lsb is not None:
+            lsb = validate_numeric_range(lsb, "lsb", min_val=-10000, max_val=10000)
+            lsb_safe = sanitize_for_python(lsb)
+            lsb_line = f"glyph.setLSB({lsb_safe})"
+
+        if rsb is not None:
+            rsb = validate_numeric_range(rsb, "rsb", min_val=-10000, max_val=10000)
+            rsb_safe = sanitize_for_python(rsb)
+            rsb_line = f"glyph.setRSB({rsb_safe})"
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            {lsb_line}
+            {rsb_line}
+            glyph.update()
+
+            result = {{
+                "success": True,
+                "message": "Sidebearings updated",
+                "data": {{
+                    "name": glyph.name,
+                    "lsb": glyph.getLSB(),
+                    "rsb": glyph.getRSB(),
+                    "width": glyph.width
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in set_glyph_sidebearings: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _set_glyph_note(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Set glyph note."""
+    try:
+        name = validate_glyph_name(args["name"])
+        note = validate_string_length(args["note"], "note", max_length=10000)
+
+        name_safe = sanitize_for_python(name)
+        note_safe = sanitize_for_python(note)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            glyph.note = {note_safe}
+            glyph.update()
+
+            result = {{
+                "success": True,
+                "message": "Glyph note updated",
+                "data": {{
+                    "name": glyph.name,
+                    "note": glyph.note
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in set_glyph_note: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _set_glyph_tags(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Set glyph tags."""
+    try:
+        name = validate_glyph_name(args["name"])
+        tags = args["tags"]
+
+        if not isinstance(tags, list):
+            return {"success": False, "error": "Tags must be a list of strings"}
+
+        # Validate each tag
+        validated_tags = []
+        for tag in tags:
+            if not isinstance(tag, str):
+                return {"success": False, "error": f"Invalid tag (must be string): {tag}"}
+            validated_tags.append(validate_string_length(tag, "tag", max_length=255))
+
+        name_safe = sanitize_for_python(name)
+        tags_safe = sanitize_for_python(validated_tags)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            glyph.tags = {tags_safe}
+            glyph.update()
+
+            result = {{
+                "success": True,
+                "message": "Glyph tags updated",
+                "data": {{
+                    "name": glyph.name,
+                    "tags": list(glyph.tags) if glyph.tags else []
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in set_glyph_tags: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _set_glyph_mark(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Set glyph mark color."""
+    try:
+        name = validate_glyph_name(args["name"])
+        mark = validate_numeric_range(args["mark"], "mark", min_val=0, max_val=255)
+
+        name_safe = sanitize_for_python(name)
+        mark_safe = sanitize_for_python(int(mark))
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            glyph.mark = {mark_safe}
+            glyph.update()
+
+            result = {{
+                "success": True,
+                "message": "Glyph mark updated",
+                "data": {{
+                    "name": glyph.name,
+                    "mark": glyph.mark
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in set_glyph_mark: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _set_kerning_pair(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Set kerning between two glyphs."""
+    try:
+        left = validate_glyph_name(args["left"])
+        right = validate_glyph_name(args["right"])
+        value = validate_numeric_range(args["value"], "value", min_val=-10000, max_val=10000)
+
+        left_safe = sanitize_for_python(left)
+        right_safe = sanitize_for_python(right)
+        value_safe = sanitize_for_python(value)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        # Access fontgate for kerning
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font is None or not hasattr(fg_font, 'kerning'):
+            result = {{"success": False, "error": "Font does not support kerning"}}
+        else:
+            # Set kerning value
+            fg_font.kerning[{left_safe}, {right_safe}] = {value_safe}
+            font.update()
+
+            result = {{
+                "success": True,
+                "message": "Kerning pair updated",
+                "data": {{
+                    "left": {left_safe},
+                    "right": {right_safe},
+                    "value": {value_safe}
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        logger.info(f"Setting kerning: {left}/{right} = {value}")
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in set_kerning_pair: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _remove_kerning_pair(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Remove kerning between two glyphs."""
+    try:
+        left = validate_glyph_name(args["left"])
+        right = validate_glyph_name(args["right"])
+
+        left_safe = sanitize_for_python(left)
+        right_safe = sanitize_for_python(right)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        # Access fontgate for kerning
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font is None or not hasattr(fg_font, 'kerning'):
+            result = {{"success": False, "error": "Font does not support kerning"}}
+        else:
+            # Remove kerning
+            if ({left_safe}, {right_safe}) in fg_font.kerning:
+                del fg_font.kerning[{left_safe}, {right_safe}]
+                font.update()
+                result = {{
+                    "success": True,
+                    "message": "Kerning pair removed",
+                    "data": {{
+                        "left": {left_safe},
+                        "right": {right_safe}
+                    }}
+                }}
+            else:
+                result = {{
+                    "success": False,
+                    "error": f"No kerning found for pair: {left_safe}/{right_safe}"
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        logger.info(f"Removing kerning: {left}/{right}")
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in remove_kerning_pair: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_component(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Add a component reference to a glyph."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        base_glyph = validate_glyph_name(args["base_glyph"])
+        x_offset = validate_numeric_range(args.get("x_offset", 0), "x_offset", min_val=-10000, max_val=10000)
+        y_offset = validate_numeric_range(args.get("y_offset", 0), "y_offset", min_val=-10000, max_val=10000)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        base_glyph_safe = sanitize_for_python(base_glyph)
+        x_offset_safe = sanitize_for_python(x_offset)
+        y_offset_safe = sanitize_for_python(y_offset)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace, flShape
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            base = font.findGlyph({base_glyph_safe})
+            if base is None:
+                result = {{"success": False, "error": f"Base glyph not found: {base_glyph_safe}"}}
+            else:
+                layer = glyph.layers[0] if glyph.layers else None
+                if layer is None:
+                    result = {{"success": False, "error": "Glyph has no layers"}}
+                else:
+                    # Create component
+                    component = flShape()
+                    component.shapeType = 1  # Component type
+                    component.name = {base_glyph_safe}
+                    component.transform.translate({x_offset_safe}, {y_offset_safe})
+
+                    layer.addShape(component)
+                    glyph.update()
+
+                    result = {{
+                        "success": True,
+                        "message": "Component added successfully",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "base_glyph": {base_glyph_safe},
+                            "offset": [{x_offset_safe}, {y_offset_safe}]
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_component: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _decompose_glyph(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Decompose all components in a glyph."""
+    try:
+        name = validate_glyph_name(args["name"])
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Decompose components
+                layer.decompose()
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Glyph decomposed successfully",
+                    "data": {{"name": {name_safe}}}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in decompose_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _reverse_contours(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Reverse the direction of all contours."""
+    try:
+        name = validate_glyph_name(args["name"])
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Reverse all contours
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        shape.reverse()
+
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Contours reversed successfully",
+                    "data": {{"name": {name_safe}}}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in reverse_contours: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _remove_overlaps(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Remove overlapping paths in a glyph."""
+    try:
+        name = validate_glyph_name(args["name"])
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Remove overlaps
+                layer.removeOverlap()
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Overlaps removed successfully",
+                    "data": {{"name": {name_safe}}}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in remove_overlaps: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _set_feature_code(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Set OpenType feature code."""
+    try:
+        features = validate_string_length(args["features"], "features", max_length=100000)
+        features_safe = sanitize_for_python(features)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        # Access fontgate for features
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font is None or not hasattr(fg_font, 'features'):
+            result = {{"success": False, "error": "Font does not support features"}}
+        else:
+            # Set feature code
+            fg_font.features.text = {features_safe}
+            font.update()
+
+            result = {{
+                "success": True,
+                "message": "Feature code updated successfully",
+                "data": {{
+                    "feature_length": len({features_safe})
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in set_feature_code: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _create_glyph_class(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Create or update a glyph class."""
+    try:
+        class_name = validate_string_length(args["class_name"], "class_name", max_length=255)
+        glyphs = args["glyphs"]
+
+        if not isinstance(glyphs, list):
+            return {"success": False, "error": "Glyphs must be a list of strings"}
+
+        # Validate each glyph name
+        validated_glyphs = []
+        for glyph in glyphs:
+            if not isinstance(glyph, str):
+                return {"success": False, "error": f"Invalid glyph name (must be string): {glyph}"}
+            validated_glyphs.append(validate_glyph_name(glyph))
+
+        class_name_safe = sanitize_for_python(class_name)
+        glyphs_safe = sanitize_for_python(validated_glyphs)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        # Access fontgate for glyph classes
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font is None or not hasattr(fg_font, 'groups'):
+            result = {{"success": False, "error": "Font does not support glyph classes"}}
+        else:
+            # Create/update glyph class
+            fg_font.groups[{class_name_safe}] = {glyphs_safe}
+            font.update()
+
+            result = {{
+                "success": True,
+                "message": "Glyph class created/updated successfully",
+                "data": {{
+                    "class_name": {class_name_safe},
+                    "glyphs": {glyphs_safe},
+                    "count": len({glyphs_safe})
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in create_glyph_class: {e}")
         return {"success": False, "error": f"Validation error: {e}"}
