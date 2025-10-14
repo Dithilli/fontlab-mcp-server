@@ -155,6 +155,12 @@ def register_resources() -> list[Resource]:
             description="Get all glyph classes defined in the font",
             mimeType="application/json",
         ),
+        Resource(
+            uri="fontlab://glyph/{name}/anchors",
+            name="Glyph Anchors",
+            description="Get anchor points for a specific glyph",
+            mimeType="application/json",
+        ),
     ]
 
 
@@ -200,9 +206,12 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
             return json.dumps(result, indent=2)
 
         elif uri.startswith("fontlab://glyph/") and "/metadata" in uri:
-            # Extract glyph name from URI (before /metadata)
+            # Extract glyph name from URI (must be: fontlab://glyph/{name}/metadata)
             full_path = _parse_uri_path(uri, "fontlab://glyph/")
-            glyph_name = full_path.replace("/metadata", "")
+            parts = full_path.split('/')
+            if len(parts) != 2 or parts[1] != "metadata":
+                raise ValueError("Invalid metadata URI format. Expected: fontlab://glyph/{name}/metadata")
+            glyph_name = parts[0]
             if not glyph_name:
                 raise ValueError("Glyph name is required")
 
@@ -210,9 +219,12 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
             return json.dumps(result, indent=2)
 
         elif uri.startswith("fontlab://glyph/") and "/contours" in uri:
-            # Extract glyph name from URI (before /contours)
+            # Extract glyph name from URI (must be: fontlab://glyph/{name}/contours)
             full_path = _parse_uri_path(uri, "fontlab://glyph/")
-            glyph_name = full_path.replace("/contours", "")
+            parts = full_path.split('/')
+            if len(parts) != 2 or parts[1] != "contours":
+                raise ValueError("Invalid contours URI format. Expected: fontlab://glyph/{name}/contours")
+            glyph_name = parts[0]
             if not glyph_name:
                 raise ValueError("Glyph name is required")
 
@@ -220,9 +232,12 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
             return json.dumps(result, indent=2)
 
         elif uri.startswith("fontlab://glyph/") and "/paths" in uri:
-            # Extract glyph name from URI (before /paths)
+            # Extract glyph name from URI (must be: fontlab://glyph/{name}/paths)
             full_path = _parse_uri_path(uri, "fontlab://glyph/")
-            glyph_name = full_path.replace("/paths", "")
+            parts = full_path.split('/')
+            if len(parts) != 2 or parts[1] != "paths":
+                raise ValueError("Invalid paths URI format. Expected: fontlab://glyph/{name}/paths")
+            glyph_name = parts[0]
             if not glyph_name:
                 raise ValueError("Glyph name is required")
 
@@ -230,13 +245,29 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
             return json.dumps(result, indent=2)
 
         elif uri.startswith("fontlab://glyph/") and "/components" in uri:
-            # Extract glyph name from URI (before /components)
+            # Extract glyph name from URI (must be: fontlab://glyph/{name}/components)
             full_path = _parse_uri_path(uri, "fontlab://glyph/")
-            glyph_name = full_path.replace("/components", "")
+            parts = full_path.split('/')
+            if len(parts) != 2 or parts[1] != "components":
+                raise ValueError("Invalid components URI format. Expected: fontlab://glyph/{name}/components")
+            glyph_name = parts[0]
             if not glyph_name:
                 raise ValueError("Glyph name is required")
 
             result = await bridge.get_glyph_components(glyph_name)
+            return json.dumps(result, indent=2)
+
+        elif uri.startswith("fontlab://glyph/") and "/anchors" in uri:
+            # Extract glyph name from URI (must be: fontlab://glyph/{name}/anchors)
+            full_path = _parse_uri_path(uri, "fontlab://glyph/")
+            parts = full_path.split('/')
+            if len(parts) != 2 or parts[1] != "anchors":
+                raise ValueError("Invalid anchors URI format. Expected: fontlab://glyph/{name}/anchors")
+            glyph_name = parts[0]
+            if not glyph_name:
+                raise ValueError("Glyph name is required")
+
+            result = await bridge.get_glyph_anchors(glyph_name)
             return json.dumps(result, indent=2)
 
         elif uri.startswith("fontlab://glyph/"):
@@ -276,11 +307,10 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
             if "pattern" not in params or not params["pattern"]:
                 raise ValueError("Missing 'pattern' parameter")
 
-            # parse_qs returns lists, get first value
+            # parse_qs returns lists and already URL-decodes values, get first value
             pattern = params["pattern"][0]
 
-            # Decode and validate pattern
-            pattern = unquote(pattern)
+            # Validate pattern (no double-decoding needed - parse_qs already decoded)
             if '..' in pattern or '\x00' in pattern:
                 raise ValueError("Invalid characters in search pattern")
 
