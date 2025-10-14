@@ -1057,3 +1057,106 @@ with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
         return await self.execute_script(script)
+
+    async def get_font_guides(self) -> dict[str, Any]:
+        """
+        Get all global guides from the font.
+
+        Returns:
+            Dictionary with guide data
+        """
+        script = """
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {"success": False, "error": "No font is currently open"}
+    else:
+        guides = []
+
+        # Access guides through fontgate
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font and hasattr(fg_font, 'guides'):
+            for guide in fg_font.guides:
+                guide_data = {
+                    "position": guide.position if hasattr(guide, 'position') else 0,
+                    "angle": guide.angle if hasattr(guide, 'angle') else 0,
+                    "name": guide.name if hasattr(guide, 'name') else "",
+                }
+                guides.append(guide_data)
+
+        result = {
+            "success": True,
+            "data": {
+                "guides": guides,
+                "count": len(guides)
+            }
+        }
+except Exception as e:
+    result = {"success": False, "error": str(e)}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
+
+    async def get_alignment_zones(self) -> dict[str, Any]:
+        """
+        Get alignment zones (hint zones) from the font.
+
+        Returns:
+            Dictionary with zone data
+        """
+        script = """
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {"success": False, "error": "No font is currently open"}
+    else:
+        zones = []
+
+        # Access zones through font info
+        if hasattr(font, 'info'):
+            # PostScript zones (blueValues, otherBlues, etc.)
+            if hasattr(font.info, 'postscriptBlueValues') and font.info.postscriptBlueValues:
+                for i in range(0, len(font.info.postscriptBlueValues), 2):
+                    zones.append({
+                        "type": "blue",
+                        "bottom": font.info.postscriptBlueValues[i],
+                        "top": font.info.postscriptBlueValues[i+1] if i+1 < len(font.info.postscriptBlueValues) else font.info.postscriptBlueValues[i]
+                    })
+
+            if hasattr(font.info, 'postscriptOtherBlues') and font.info.postscriptOtherBlues:
+                for i in range(0, len(font.info.postscriptOtherBlues), 2):
+                    zones.append({
+                        "type": "other_blue",
+                        "bottom": font.info.postscriptOtherBlues[i],
+                        "top": font.info.postscriptOtherBlues[i+1] if i+1 < len(font.info.postscriptOtherBlues) else font.info.postscriptOtherBlues[i]
+                    })
+
+        result = {
+            "success": True,
+            "data": {
+                "zones": zones,
+                "count": len(zones)
+            }
+        }
+except Exception as e:
+    result = {"success": False, "error": str(e)}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)

@@ -533,6 +533,53 @@ def register_tools() -> list[Tool]:
                 "required": ["glyph_name", "layer_index"],
             },
         ),
+        Tool(
+            name="add_guide",
+            description="Add a global guide to the font",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "position": {
+                        "type": "number",
+                        "description": "Guide position (y-coordinate for horizontal, x for vertical)",
+                    },
+                    "angle": {
+                        "type": "number",
+                        "description": "Guide angle in degrees (0=horizontal, 90=vertical)",
+                        "default": 0,
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Guide name (optional)",
+                        "default": "",
+                    },
+                },
+                "required": ["position"],
+            },
+        ),
+        Tool(
+            name="add_zone",
+            description="Add an alignment zone (hint zone) to the font",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "zone_type": {
+                        "type": "string",
+                        "description": "Zone type",
+                        "enum": ["blue", "other_blue"],
+                    },
+                    "bottom": {
+                        "type": "number",
+                        "description": "Bottom edge of the zone",
+                    },
+                    "top": {
+                        "type": "number",
+                        "description": "Top edge of the zone",
+                    },
+                },
+                "required": ["zone_type", "bottom", "top"],
+            },
+        ),
     ]
 
 
@@ -635,6 +682,12 @@ async def handle_call_tool(
 
     elif name == "remove_layer":
         result = await _remove_layer(arguments, bridge)
+
+    elif name == "add_guide":
+        result = await _add_guide(arguments, bridge)
+
+    elif name == "add_zone":
+        result = await _add_zone(arguments, bridge)
 
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -2089,4 +2142,132 @@ with open(sys.argv[-1], 'w') as f:
         return await bridge.execute_script(script)
     except ValidationError as e:
         logger.error(f"Validation error in remove_layer: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_guide(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Add a global guide to the font."""
+    try:
+        position = validate_numeric_range(args["position"], "position", min_val=-10000, max_val=10000)
+        angle = validate_numeric_range(args.get("angle", 0), "angle", min_val=-360, max_val=360)
+        name = validate_string_length(args.get("name", ""), "name", max_length=255)
+
+        position_safe = sanitize_for_python(position)
+        angle_safe = sanitize_for_python(angle)
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        # Access fontgate for guides
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font is None:
+            result = {{"success": False, "error": "Font does not support guides"}}
+        else:
+            # Add guide using fontgate
+            from fontgate import fgGuide
+            guide = fgGuide()
+            guide.position = {position_safe}
+            guide.angle = {angle_safe}
+            if {name_safe}:
+                guide.name = {name_safe}
+
+            if not hasattr(fg_font, 'guides'):
+                fg_font.guides = []
+            fg_font.guides.append(guide)
+            font.update()
+
+            result = {{
+                "success": True,
+                "message": "Guide added successfully",
+                "data": {{
+                    "position": {position_safe},
+                    "angle": {angle_safe},
+                    "name": {name_safe}
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_guide: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_zone(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Add an alignment zone to the font."""
+    try:
+        zone_type = args["zone_type"]
+        if zone_type not in ["blue", "other_blue"]:
+            return {"success": False, "error": f"Invalid zone type: {zone_type}"}
+
+        bottom = validate_numeric_range(args["bottom"], "bottom", min_val=-10000, max_val=10000)
+        top = validate_numeric_range(args["top"], "top", min_val=-10000, max_val=10000)
+
+        if bottom >= top:
+            return {"success": False, "error": "Bottom must be less than top"}
+
+        zone_type_safe = sanitize_for_python(zone_type)
+        bottom_safe = sanitize_for_python(bottom)
+        top_safe = sanitize_for_python(top)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        if not hasattr(font, 'info'):
+            result = {{"success": False, "error": "Font does not have info"}}
+        else:
+            # Add zone to appropriate list
+            if {zone_type_safe} == "blue":
+                if not hasattr(font.info, 'postscriptBlueValues') or font.info.postscriptBlueValues is None:
+                    font.info.postscriptBlueValues = []
+                font.info.postscriptBlueValues.extend([{bottom_safe}, {top_safe}])
+            else:  # other_blue
+                if not hasattr(font.info, 'postscriptOtherBlues') or font.info.postscriptOtherBlues is None:
+                    font.info.postscriptOtherBlues = []
+                font.info.postscriptOtherBlues.extend([{bottom_safe}, {top_safe}])
+
+            font.update()
+
+            result = {{
+                "success": True,
+                "message": "Alignment zone added successfully",
+                "data": {{
+                    "type": {zone_type_safe},
+                    "bottom": {bottom_safe},
+                    "top": {top_safe}
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_zone: {e}")
         return {"success": False, "error": f"Validation error: {e}"}

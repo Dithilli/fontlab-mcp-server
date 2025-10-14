@@ -223,6 +223,14 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
             result = await bridge.get_glyph_classes()
             return json.dumps(result, indent=2)
 
+        elif uri == "fontlab://font/guides":
+            result = await bridge.get_font_guides()
+            return json.dumps(result, indent=2)
+
+        elif uri == "fontlab://font/zones":
+            result = await bridge.get_alignment_zones()
+            return json.dumps(result, indent=2)
+
         elif uri.startswith("fontlab://glyph/") and "/metadata" in uri:
             # Extract glyph name from URI (must be: fontlab://glyph/{name}/metadata)
             full_path = _parse_uri_path(uri, "fontlab://glyph/")
