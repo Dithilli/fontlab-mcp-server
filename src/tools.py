@@ -4,10 +4,22 @@ Handles write operations and tool calls for MCP
 """
 
 import json
+import logging
 from typing import Any
 from mcp.types import Tool, TextContent
 
 from .fontlab_bridge import FontLabBridge
+from .utils.validation import (
+    ValidationError,
+    sanitize_for_python,
+    validate_glyph_name,
+    validate_export_path,
+    validate_numeric_range,
+    validate_string_length,
+    validate_unicode_codepoint,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def register_tools() -> list[Tool]:
@@ -157,6 +169,159 @@ def register_tools() -> list[Tool]:
                 "required": ["name"],
             },
         ),
+        Tool(
+            name="rename_glyph",
+            description="Rename an existing glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "old_name": {
+                        "type": "string",
+                        "description": "Current glyph name",
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": "New glyph name",
+                    },
+                },
+                "required": ["old_name", "new_name"],
+            },
+        ),
+        Tool(
+            name="duplicate_glyph",
+            description="Duplicate a glyph with a new name",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name to duplicate",
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": "Name for the duplicate glyph",
+                    },
+                },
+                "required": ["name", "new_name"],
+            },
+        ),
+        Tool(
+            name="set_glyph_sidebearings",
+            description="Set left and right sidebearings for a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "lsb": {
+                        "type": "number",
+                        "description": "Left sidebearing (optional)",
+                    },
+                    "rsb": {
+                        "type": "number",
+                        "description": "Right sidebearing (optional)",
+                    },
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
+            name="set_glyph_note",
+            description="Set note text for a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Note text (empty string to clear)",
+                    },
+                },
+                "required": ["name", "note"],
+            },
+        ),
+        Tool(
+            name="set_glyph_tags",
+            description="Set tags for a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of tag strings (empty array to clear)",
+                    },
+                },
+                "required": ["name", "tags"],
+            },
+        ),
+        Tool(
+            name="set_glyph_mark",
+            description="Set color mark for a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "mark": {
+                        "type": "integer",
+                        "description": "Mark color index (0 = none, 1-255 = color)",
+                    },
+                },
+                "required": ["name", "mark"],
+            },
+        ),
+        Tool(
+            name="set_kerning_pair",
+            description="Set kerning value between two glyphs",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "left": {
+                        "type": "string",
+                        "description": "Left glyph name or class",
+                    },
+                    "right": {
+                        "type": "string",
+                        "description": "Right glyph name or class",
+                    },
+                    "value": {
+                        "type": "number",
+                        "description": "Kerning value (use 0 to remove)",
+                    },
+                },
+                "required": ["left", "right", "value"],
+            },
+        ),
+        Tool(
+            name="remove_kerning_pair",
+            description="Remove kerning between two glyphs",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "left": {
+                        "type": "string",
+                        "description": "Left glyph name or class",
+                    },
+                    "right": {
+                        "type": "string",
+                        "description": "Right glyph name or class",
+                    },
+                },
+                "required": ["left", "right"],
+            },
+        ),
     ]
 
 
@@ -195,6 +360,30 @@ async def handle_call_tool(
     elif name == "delete_glyph":
         result = await _delete_glyph(arguments, bridge)
 
+    elif name == "rename_glyph":
+        result = await _rename_glyph(arguments, bridge)
+
+    elif name == "duplicate_glyph":
+        result = await _duplicate_glyph(arguments, bridge)
+
+    elif name == "set_glyph_sidebearings":
+        result = await _set_glyph_sidebearings(arguments, bridge)
+
+    elif name == "set_glyph_note":
+        result = await _set_glyph_note(arguments, bridge)
+
+    elif name == "set_glyph_tags":
+        result = await _set_glyph_tags(arguments, bridge)
+
+    elif name == "set_glyph_mark":
+        result = await _set_glyph_mark(arguments, bridge)
+
+    elif name == "set_kerning_pair":
+        result = await _set_kerning_pair(arguments, bridge)
+
+    elif name == "remove_kerning_pair":
+        result = await _remove_kerning_pair(arguments, bridge)
+
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -203,11 +392,25 @@ async def handle_call_tool(
 
 async def _create_glyph(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
     """Create a new glyph."""
-    name = args["name"]
-    unicode_val = args.get("unicode")
-    width = args.get("width", 600)
+    try:
+        # Validate inputs
+        name = validate_glyph_name(args["name"])
+        unicode_val = args.get("unicode")
+        if unicode_val is not None:
+            unicode_val = validate_unicode_codepoint(unicode_val)
+        width = validate_numeric_range(
+            args.get("width", 600),
+            "width",
+            min_val=0,
+            max_val=10000
+        )
 
-    script = f"""
+        # Sanitize for safe inclusion in Python script
+        name_safe = sanitize_for_python(name)
+        width_safe = sanitize_for_python(width)
+        unicode_line = f"glyph.unicode = {sanitize_for_python(unicode_val)}" if unicode_val else ""
+
+        script = f"""
 import json
 import sys
 
@@ -220,16 +423,16 @@ try:
         result = {{"success": False, "error": "No font is currently open"}}
     else:
         # Check if glyph already exists
-        existing = font.findGlyph("{name}")
+        existing = font.findGlyph({name_safe})
         if existing is not None:
-            result = {{"success": False, "error": "Glyph already exists: {name}"}}
+            result = {{"success": False, "error": f"Glyph already exists: {{{{name_safe}}}}"}}
         else:
             # Create new glyph
             glyph = flGlyph()
-            glyph.name = "{name}"
-            glyph.width = {width}
+            glyph.name = {name_safe}
+            glyph.width = {width_safe}
 
-            {f'glyph.unicode = {unicode_val}' if unicode_val else ''}
+            {unicode_line}
 
             # Add glyph to font
             font.addGlyph(glyph)
@@ -249,15 +452,29 @@ except Exception as e:
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
-    return await bridge.execute_script(script)
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in create_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
 
 
 async def _modify_glyph_width(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
     """Modify glyph width."""
-    name = args["name"]
-    width = args["width"]
+    try:
+        # Validate inputs
+        name = validate_glyph_name(args["name"])
+        width = validate_numeric_range(
+            args["width"],
+            "width",
+            min_val=0,
+            max_val=10000
+        )
 
-    script = f"""
+        # Sanitize for safe inclusion in Python script
+        name_safe = sanitize_for_python(name)
+        width_safe = sanitize_for_python(width)
+
+        script = f"""
 import json
 import sys
 
@@ -269,12 +486,12 @@ try:
     if font is None:
         result = {{"success": False, "error": "No font is currently open"}}
     else:
-        glyph = font.findGlyph("{name}")
+        glyph = font.findGlyph({name_safe})
         if glyph is None:
-            result = {{"success": False, "error": "Glyph not found: {name}"}}
+            result = {{"success": False, "error": f"Glyph not found: {{{{name_safe}}}}"}}
         else:
             old_width = glyph.width
-            glyph.width = {width}
+            glyph.width = {width_safe}
             glyph.update()
 
             result = {{
@@ -292,19 +509,42 @@ except Exception as e:
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
-    return await bridge.execute_script(script)
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in modify_glyph_width: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
 
 
 async def _transform_glyph(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
     """Apply transformation to glyph."""
-    name = args["name"]
-    scale_x = args.get("scale_x", 1.0)
-    scale_y = args.get("scale_y", 1.0)
-    rotate = args.get("rotate", 0)
-    translate_x = args.get("translate_x", 0)
-    translate_y = args.get("translate_y", 0)
+    try:
+        # Validate inputs
+        name = validate_glyph_name(args["name"])
+        scale_x = validate_numeric_range(
+            args.get("scale_x", 1.0), "scale_x", min_val=0.001, max_val=100
+        )
+        scale_y = validate_numeric_range(
+            args.get("scale_y", 1.0), "scale_y", min_val=0.001, max_val=100
+        )
+        rotate = validate_numeric_range(
+            args.get("rotate", 0), "rotate", min_val=-360, max_val=360
+        )
+        translate_x = validate_numeric_range(
+            args.get("translate_x", 0), "translate_x", min_val=-10000, max_val=10000
+        )
+        translate_y = validate_numeric_range(
+            args.get("translate_y", 0), "translate_y", min_val=-10000, max_val=10000
+        )
 
-    script = f"""
+        # Sanitize for safe inclusion in Python script
+        name_safe = sanitize_for_python(name)
+        scale_x_safe = sanitize_for_python(scale_x)
+        scale_y_safe = sanitize_for_python(scale_y)
+        rotate_safe = sanitize_for_python(rotate)
+        translate_x_safe = sanitize_for_python(translate_x)
+        translate_y_safe = sanitize_for_python(translate_y)
+
+        script = f"""
 import json
 import sys
 
@@ -316,22 +556,22 @@ try:
     if font is None:
         result = {{"success": False, "error": "No font is currently open"}}
     else:
-        glyph = font.findGlyph("{name}")
+        glyph = font.findGlyph({name_safe})
         if glyph is None:
-            result = {{"success": False, "error": "Glyph not found: {name}"}}
+            result = {{"success": False, "error": f"Glyph not found: {{{{name_safe}}}}"}}
         else:
             # Create transformation matrix
             transform = flTransform()
 
             # Apply transformations
-            if {scale_x} != 1.0 or {scale_y} != 1.0:
-                transform.scale({scale_x}, {scale_y})
+            if {scale_x_safe} != 1.0 or {scale_y_safe} != 1.0:
+                transform.scale({scale_x_safe}, {scale_y_safe})
 
-            if {rotate} != 0:
-                transform.rotate({rotate})
+            if {rotate_safe} != 0:
+                transform.rotate({rotate_safe})
 
-            if {translate_x} != 0 or {translate_y} != 0:
-                transform.translate({translate_x}, {translate_y})
+            if {translate_x_safe} != 0 or {translate_y_safe} != 0:
+                transform.translate({translate_x_safe}, {translate_y_safe})
 
             # Apply to glyph
             layer = glyph.layers[0]
@@ -344,11 +584,11 @@ try:
                 "data": {{
                     "name": glyph.name,
                     "transformations": {{
-                        "scale_x": {scale_x},
-                        "scale_y": {scale_y},
-                        "rotate": {rotate},
-                        "translate_x": {translate_x},
-                        "translate_y": {translate_y}
+                        "scale_x": {scale_x_safe},
+                        "scale_y": {scale_y_safe},
+                        "rotate": {rotate_safe},
+                        "translate_x": {translate_x_safe},
+                        "translate_y": {translate_y_safe}
                     }}
                 }}
             }}
@@ -358,25 +598,37 @@ except Exception as e:
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
-    return await bridge.execute_script(script)
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in transform_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
 
 
 async def _update_font_info(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
     """Update font metadata."""
-    updates = []
+    try:
+        updates = []
 
-    if "family_name" in args:
-        updates.append(f'font.info.familyName = "{args["family_name"]}"')
-    if "style_name" in args:
-        updates.append(f'font.info.styleName = "{args["style_name"]}"')
-    if "version" in args:
-        updates.append(f'font.info.version = "{args["version"]}"')
-    if "copyright" in args:
-        updates.append(f'font.info.copyright = "{args["copyright"]}"')
+        # Validate and sanitize each field
+        if "family_name" in args:
+            family_name = validate_string_length(args["family_name"], "family_name", max_length=255)
+            updates.append(f'font.info.familyName = {sanitize_for_python(family_name)}')
+        if "style_name" in args:
+            style_name = validate_string_length(args["style_name"], "style_name", max_length=255)
+            updates.append(f'font.info.styleName = {sanitize_for_python(style_name)}')
+        if "version" in args:
+            version = validate_string_length(args["version"], "version", max_length=100)
+            updates.append(f'font.info.version = {sanitize_for_python(version)}')
+        if "copyright" in args:
+            copyright_text = validate_string_length(args["copyright"], "copyright", max_length=2000)
+            updates.append(f'font.info.copyright = {sanitize_for_python(copyright_text)}')
 
-    updates_str = "\n            ".join(updates)
+        if not updates:
+            return {"success": False, "error": "No valid updates provided"}
 
-    script = f"""
+        updates_str = "\n            ".join(updates)
+
+        script = f"""
 import json
 import sys
 
@@ -409,15 +661,25 @@ except Exception as e:
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
-    return await bridge.execute_script(script)
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in update_font_info: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
 
 
 async def _export_font(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
     """Export font to file."""
-    path = args["path"]
-    format_type = args.get("format", "otf")
+    try:
+        # Validate export path (prevents path traversal)
+        format_type = args.get("format", "otf")
+        allowed_extensions = [f".{format_type}"]
+        path = validate_export_path(args["path"], allowed_extensions)
 
-    script = f"""
+        # Sanitize for safe inclusion in Python script
+        path_safe = sanitize_for_python(path)
+        format_safe = sanitize_for_python(format_type)
+
+        script = f"""
 import json
 import sys
 
@@ -430,15 +692,15 @@ try:
         result = {{"success": False, "error": "No font is currently open"}}
     else:
         # Export font
-        success = font.save("{path}", "{format_type}")
+        success = font.save({path_safe}, {format_safe})
 
         if success:
             result = {{
                 "success": True,
                 "message": "Font exported successfully",
                 "data": {{
-                    "path": "{path}",
-                    "format": "{format_type}"
+                    "path": {path_safe},
+                    "format": {format_safe}
                 }}
             }}
         else:
@@ -449,14 +711,23 @@ except Exception as e:
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
-    return await bridge.execute_script(script)
+        logger.info(f"Exporting font to {path} as {format_type}")
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in export_font: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
 
 
 async def _delete_glyph(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
     """Delete a glyph."""
-    name = args["name"]
+    try:
+        # Validate inputs
+        name = validate_glyph_name(args["name"])
 
-    script = f"""
+        # Sanitize for safe inclusion in Python script
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
 import json
 import sys
 
@@ -468,9 +739,9 @@ try:
     if font is None:
         result = {{"success": False, "error": "No font is currently open"}}
     else:
-        glyph = font.findGlyph("{name}")
+        glyph = font.findGlyph({name_safe})
         if glyph is None:
-            result = {{"success": False, "error": "Glyph not found: {name}"}}
+            result = {{"success": False, "error": f"Glyph not found: {{{{name_safe}}}}"}}
         else:
             font.removeGlyph(glyph)
             font.update()
@@ -478,7 +749,7 @@ try:
             result = {{
                 "success": True,
                 "message": "Glyph deleted successfully",
-                "data": {{"name": "{name}"}}
+                "data": {{"name": {name_safe}}}
             }}
 except Exception as e:
     result = {{"success": False, "error": str(e)}}
@@ -486,4 +757,8 @@ except Exception as e:
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
-    return await bridge.execute_script(script)
+        logger.info(f"Deleting glyph: {name}")
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in delete_glyph: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}

@@ -5,10 +5,13 @@ Handles communication between MCP server and FontLab's Python environment
 
 import asyncio
 import json
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class FontLabBridge:
@@ -103,7 +106,13 @@ class FontLabBridge:
                     process.communicate(), timeout=timeout
                 )
             except asyncio.TimeoutError:
+                logger.error(f"Script execution timeout after {timeout}s")
                 process.kill()
+                # Wait for process to actually terminate
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    logger.error("Process did not terminate after kill signal")
                 raise RuntimeError(f"Script execution timed out after {timeout}s")
 
             # Read the output
@@ -231,6 +240,9 @@ with open(sys.argv[-1], 'w') as f:
         Returns:
             Dictionary with glyph information
         """
+        # Sanitize glyph name to prevent command injection
+        glyph_name_safe = json.dumps(glyph_name)
+
         script = f"""
 import json
 import sys
@@ -243,10 +255,10 @@ try:
     if font is None:
         result = {{"success": False, "error": "No font is currently open"}}
     else:
-        glyph = font.findGlyph("{glyph_name}")
+        glyph = font.findGlyph({glyph_name_safe})
 
         if glyph is None:
-            result = {{"success": False, "error": "Glyph not found: {glyph_name}"}}
+            result = {{"success": False, "error": f"Glyph not found: {{{{glyph_name_safe}}}}"}}
         else:
             layer = glyph.layers[0]
 
@@ -268,6 +280,215 @@ try:
             }}
 except Exception as e:
     result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
+
+    async def find_glyph_by_unicode(self, codepoint: int) -> dict[str, Any]:
+        """
+        Find glyph by Unicode code point.
+
+        Args:
+            codepoint: Unicode code point (integer)
+
+        Returns:
+            Dictionary with glyph information or error
+        """
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = None
+        # Search for glyph with this unicode
+        for g in font.glyphs:
+            if g.unicode == {codepoint}:
+                glyph = g
+                break
+
+        if glyph is None:
+            result = {{
+                "success": False,
+                "error": f"No glyph found with Unicode U+{{hex({codepoint})[2:].upper().zfill(4)}}"
+            }}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            result = {{
+                "success": True,
+                "data": {{
+                    "name": glyph.name,
+                    "unicode": glyph.unicode,
+                    "width": glyph.width,
+                    "height": layer.advanceHeight if layer and hasattr(layer, 'advanceHeight') else 0,
+                    "has_contours": len(layer.shapes) > 0 if layer else False,
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
+
+    async def search_glyphs(self, pattern: str) -> dict[str, Any]:
+        """
+        Search for glyphs by name pattern.
+
+        Args:
+            pattern: Search pattern (supports * and ? wildcards)
+
+        Returns:
+            Dictionary with list of matching glyphs
+        """
+        script = f"""
+import json
+import sys
+import fnmatch
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        pattern = {json.dumps(pattern)}
+        matches = []
+
+        for glyph in font.glyphs:
+            if fnmatch.fnmatch(glyph.name, pattern):
+                matches.append({{
+                    "name": glyph.name,
+                    "unicode": glyph.unicode if glyph.unicode else None,
+                    "width": glyph.width,
+                }})
+
+        result = {{
+            "success": True,
+            "data": {{
+                "pattern": pattern,
+                "matches": matches,
+                "count": len(matches)
+            }}
+        }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
+
+    async def get_glyph_metadata(self, glyph_name: str) -> dict[str, Any]:
+        """
+        Get metadata for a specific glyph (tags, note, mark).
+
+        Args:
+            glyph_name: Name of the glyph
+
+        Returns:
+            Dictionary with glyph metadata
+        """
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({json.dumps(glyph_name)})
+
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {{{json.dumps(glyph_name)}}}"}}
+
+        else:
+            result = {{
+                "success": True,
+                "data": {{
+                    "name": glyph.name,
+                    "note": glyph.note if hasattr(glyph, 'note') and glyph.note else "",
+                    "tags": list(glyph.tags) if hasattr(glyph, 'tags') and glyph.tags else [],
+                    "mark": glyph.mark if hasattr(glyph, 'mark') else 0,
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
+
+    async def get_kerning(self) -> dict[str, Any]:
+        """
+        Get all kerning pairs from the current font.
+
+        Returns:
+            Dictionary with kerning data
+        """
+        script = """
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {"success": False, "error": "No font is currently open"}
+    else:
+        # Access the fontgate font for kerning data
+        fg_font = font.fgFont if hasattr(font, 'fgFont') else None
+
+        if fg_font is None or not hasattr(fg_font, 'kerning'):
+            result = {
+                "success": True,
+                "data": {
+                    "pairs": [],
+                    "count": 0
+                }
+            }
+        else:
+            kerning_obj = fg_font.kerning
+            pairs = []
+
+            # Iterate through kerning pairs
+            if hasattr(kerning_obj, 'asDict'):
+                kern_dict = kerning_obj.asDict()
+                for left_key, right_dict in kern_dict.items():
+                    for right_key, value in right_dict.items():
+                        pairs.append({
+                            "left": left_key,
+                            "right": right_key,
+                            "value": value
+                        })
+
+            result = {
+                "success": True,
+                "data": {
+                    "pairs": pairs,
+                    "count": len(pairs)
+                }
+            }
+except Exception as e:
+    result = {"success": False, "error": str(e)}
 
 with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
