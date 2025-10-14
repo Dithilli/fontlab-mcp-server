@@ -427,6 +427,112 @@ def register_tools() -> list[Tool]:
                 "required": ["class_name", "glyphs"],
             },
         ),
+        Tool(
+            name="add_anchor",
+            description="Add an anchor point to a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "anchor_name": {
+                        "type": "string",
+                        "description": "Anchor name (e.g., 'top', 'bottom', '_top')",
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "X coordinate",
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "Y coordinate",
+                    },
+                },
+                "required": ["glyph_name", "anchor_name", "x", "y"],
+            },
+        ),
+        Tool(
+            name="remove_anchor",
+            description="Remove an anchor from a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "anchor_name": {
+                        "type": "string",
+                        "description": "Anchor name to remove",
+                    },
+                },
+                "required": ["glyph_name", "anchor_name"],
+            },
+        ),
+        Tool(
+            name="move_anchor",
+            description="Move an existing anchor to a new position",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "anchor_name": {
+                        "type": "string",
+                        "description": "Anchor name",
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "New X coordinate",
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "New Y coordinate",
+                    },
+                },
+                "required": ["glyph_name", "anchor_name", "x", "y"],
+            },
+        ),
+        Tool(
+            name="add_layer",
+            description="Add a new layer to a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "layer_name": {
+                        "type": "string",
+                        "description": "Name for the new layer",
+                    },
+                },
+                "required": ["glyph_name", "layer_name"],
+            },
+        ),
+        Tool(
+            name="remove_layer",
+            description="Remove a layer from a glyph by index",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "layer_index": {
+                        "type": "integer",
+                        "description": "Layer index (0-based)",
+                    },
+                },
+                "required": ["glyph_name", "layer_index"],
+            },
+        ),
     ]
 
 
@@ -514,6 +620,21 @@ async def handle_call_tool(
 
     elif name == "create_glyph_class":
         result = await _create_glyph_class(arguments, bridge)
+
+    elif name == "add_anchor":
+        result = await _add_anchor(arguments, bridge)
+
+    elif name == "remove_anchor":
+        result = await _remove_anchor(arguments, bridge)
+
+    elif name == "move_anchor":
+        result = await _move_anchor(arguments, bridge)
+
+    elif name == "add_layer":
+        result = await _add_layer(arguments, bridge)
+
+    elif name == "remove_layer":
+        result = await _remove_layer(arguments, bridge)
 
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -1658,4 +1779,314 @@ with open(sys.argv[-1], 'w') as f:
         return await bridge.execute_script(script)
     except ValidationError as e:
         logger.error(f"Validation error in create_glyph_class: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_anchor(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Add an anchor to a glyph."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        anchor_name = validate_string_length(args["anchor_name"], "anchor_name", max_length=255)
+        x = validate_numeric_range(args["x"], "x", min_val=-10000, max_val=10000)
+        y = validate_numeric_range(args["y"], "y", min_val=-10000, max_val=10000)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        anchor_name_safe = sanitize_for_python(anchor_name)
+        x_safe = sanitize_for_python(x)
+        y_safe = sanitize_for_python(y)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            # Check if anchor already exists
+            existing_anchor = None
+            if hasattr(glyph, 'anchors') and glyph.anchors:
+                for anchor in glyph.anchors:
+                    if hasattr(anchor, 'name') and anchor.name == {anchor_name_safe}:
+                        existing_anchor = anchor
+                        break
+
+            if existing_anchor:
+                result = {{"success": False, "error": f"Anchor already exists: {anchor_name_safe}"}}
+            else:
+                # Add anchor
+                from fontlab import flAnchor
+                anchor = flAnchor()
+                anchor.name = {anchor_name_safe}
+                anchor.x = {x_safe}
+                anchor.y = {y_safe}
+
+                if not hasattr(glyph, 'anchors'):
+                    glyph.anchors = []
+                glyph.anchors.append(anchor)
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Anchor added successfully",
+                    "data": {{
+                        "glyph": {glyph_name_safe},
+                        "anchor": {anchor_name_safe},
+                        "position": [{x_safe}, {y_safe}]
+                    }}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_anchor: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _remove_anchor(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Remove an anchor from a glyph."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        anchor_name = validate_string_length(args["anchor_name"], "anchor_name", max_length=255)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        anchor_name_safe = sanitize_for_python(anchor_name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            # Find and remove anchor
+            found = False
+            if hasattr(glyph, 'anchors') and glyph.anchors:
+                for i, anchor in enumerate(glyph.anchors):
+                    if hasattr(anchor, 'name') and anchor.name == {anchor_name_safe}:
+                        glyph.anchors.pop(i)
+                        found = True
+                        break
+
+            if found:
+                glyph.update()
+                result = {{
+                    "success": True,
+                    "message": "Anchor removed successfully",
+                    "data": {{
+                        "glyph": {glyph_name_safe},
+                        "anchor": {anchor_name_safe}
+                    }}
+                }}
+            else:
+                result = {{"success": False, "error": f"Anchor not found: {anchor_name_safe}"}}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in remove_anchor: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _move_anchor(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Move an existing anchor to a new position."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        anchor_name = validate_string_length(args["anchor_name"], "anchor_name", max_length=255)
+        x = validate_numeric_range(args["x"], "x", min_val=-10000, max_val=10000)
+        y = validate_numeric_range(args["y"], "y", min_val=-10000, max_val=10000)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        anchor_name_safe = sanitize_for_python(anchor_name)
+        x_safe = sanitize_for_python(x)
+        y_safe = sanitize_for_python(y)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            # Find and move anchor
+            found = False
+            if hasattr(glyph, 'anchors') and glyph.anchors:
+                for anchor in glyph.anchors:
+                    if hasattr(anchor, 'name') and anchor.name == {anchor_name_safe}:
+                        old_x = anchor.x if hasattr(anchor, 'x') else 0
+                        old_y = anchor.y if hasattr(anchor, 'y') else 0
+                        anchor.x = {x_safe}
+                        anchor.y = {y_safe}
+                        found = True
+                        break
+
+            if found:
+                glyph.update()
+                result = {{
+                    "success": True,
+                    "message": "Anchor moved successfully",
+                    "data": {{
+                        "glyph": {glyph_name_safe},
+                        "anchor": {anchor_name_safe},
+                        "old_position": [old_x, old_y],
+                        "new_position": [{x_safe}, {y_safe}]
+                    }}
+                }}
+            else:
+                result = {{"success": False, "error": f"Anchor not found: {anchor_name_safe}"}}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in move_anchor: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_layer(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Add a new layer to a glyph."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        layer_name = validate_string_length(args["layer_name"], "layer_name", max_length=255)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        layer_name_safe = sanitize_for_python(layer_name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace, flLayer
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            # Create new layer
+            new_layer = flLayer()
+            new_layer.name = {layer_name_safe}
+
+            # Add layer to glyph
+            glyph.addLayer(new_layer)
+            glyph.update()
+
+            result = {{
+                "success": True,
+                "message": "Layer added successfully",
+                "data": {{
+                    "glyph": {glyph_name_safe},
+                    "layer_name": {layer_name_safe},
+                    "layer_count": len(glyph.layers)
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_layer: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _remove_layer(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Remove a layer from a glyph."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        layer_index = validate_numeric_range(args["layer_index"], "layer_index", min_val=0, max_val=100)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        layer_index_safe = sanitize_for_python(int(layer_index))
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            if not hasattr(glyph, 'layers') or not glyph.layers:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            elif {layer_index_safe} >= len(glyph.layers):
+                result = {{"success": False, "error": f"Layer index out of range: {layer_index_safe} (max: {{len(glyph.layers)-1}})"}}
+            elif {layer_index_safe} == 0 and len(glyph.layers) == 1:
+                result = {{"success": False, "error": "Cannot remove the only layer"}}
+            else:
+                # Remove layer
+                removed_layer_name = glyph.layers[{layer_index_safe}].name if hasattr(glyph.layers[{layer_index_safe}], 'name') else f"Layer {layer_index_safe}"
+                glyph.removeLayer({layer_index_safe})
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Layer removed successfully",
+                    "data": {{
+                        "glyph": {glyph_name_safe},
+                        "removed_layer": removed_layer_name,
+                        "layer_count": len(glyph.layers)
+                    }}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in remove_layer: {e}")
         return {"success": False, "error": f"Validation error: {e}"}

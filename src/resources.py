@@ -161,6 +161,24 @@ def register_resources() -> list[Resource]:
             description="Get anchor points for a specific glyph",
             mimeType="application/json",
         ),
+        Resource(
+            uri="fontlab://glyph/{name}/layers",
+            name="Glyph Layers",
+            description="Get layer information for a specific glyph",
+            mimeType="application/json",
+        ),
+        Resource(
+            uri="fontlab://font/guides",
+            name="Font Guides",
+            description="Get all global guides in the font",
+            mimeType="application/json",
+        ),
+        Resource(
+            uri="fontlab://font/zones",
+            name="Alignment Zones",
+            description="Get alignment zones (hint zones) for the font",
+            mimeType="application/json",
+        ),
     ]
 
 
@@ -268,6 +286,19 @@ async def handle_read_resource(uri: str, bridge: FontLabBridge) -> str:
                 raise ValueError("Glyph name is required")
 
             result = await bridge.get_glyph_anchors(glyph_name)
+            return json.dumps(result, indent=2)
+
+        elif uri.startswith("fontlab://glyph/") and "/layers" in uri:
+            # Extract glyph name from URI (must be: fontlab://glyph/{name}/layers)
+            full_path = _parse_uri_path(uri, "fontlab://glyph/")
+            parts = full_path.split('/')
+            if len(parts) != 2 or parts[1] != "layers":
+                raise ValueError("Invalid layers URI format. Expected: fontlab://glyph/{name}/layers")
+            glyph_name = parts[0]
+            if not glyph_name:
+                raise ValueError("Glyph name is required")
+
+            result = await bridge.get_glyph_layers(glyph_name)
             return json.dumps(result, indent=2)
 
         elif uri.startswith("fontlab://glyph/"):

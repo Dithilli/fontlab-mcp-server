@@ -945,3 +945,115 @@ with open(sys.argv[-1], 'w') as f:
     json.dump(result, f)
 """
         return await self.execute_script(script)
+
+    async def get_glyph_anchors(self, glyph_name: str) -> dict[str, Any]:
+        """
+        Get anchor points for a specific glyph.
+
+        Args:
+            glyph_name: Name of the glyph
+
+        Returns:
+            Dictionary with anchor data
+        """
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({json.dumps(glyph_name)})
+
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {json.dumps(glyph_name)}"}}
+        else:
+            anchors = []
+
+            # Anchors can be accessed through the glyph object
+            if hasattr(glyph, 'anchors') and glyph.anchors:
+                for anchor in glyph.anchors:
+                    anchor_data = {{
+                        "name": anchor.name if hasattr(anchor, 'name') else "",
+                        "x": anchor.x if hasattr(anchor, 'x') else 0,
+                        "y": anchor.y if hasattr(anchor, 'y') else 0,
+                    }}
+                    anchors.append(anchor_data)
+
+            result = {{
+                "success": True,
+                "data": {{
+                    "name": glyph.name,
+                    "anchors": anchors,
+                    "count": len(anchors)
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
+
+    async def get_glyph_layers(self, glyph_name: str) -> dict[str, Any]:
+        """
+        Get layer information for a specific glyph.
+
+        Args:
+            glyph_name: Name of the glyph
+
+        Returns:
+            Dictionary with layer data
+        """
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({json.dumps(glyph_name)})
+
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {json.dumps(glyph_name)}"}}
+        else:
+            layers = []
+
+            if hasattr(glyph, 'layers') and glyph.layers:
+                for i, layer in enumerate(glyph.layers):
+                    layer_data = {{
+                        "index": i,
+                        "name": layer.name if hasattr(layer, 'name') else f"Layer {{i}}",
+                        "visible": layer.visible if hasattr(layer, 'visible') else True,
+                        "shapes_count": len(layer.shapes) if hasattr(layer, 'shapes') else 0,
+                        "advance_width": layer.advanceWidth if hasattr(layer, 'advanceWidth') else 0,
+                        "advance_height": layer.advanceHeight if hasattr(layer, 'advanceHeight') else 0,
+                    }}
+                    layers.append(layer_data)
+
+            result = {{
+                "success": True,
+                "data": {{
+                    "name": glyph.name,
+                    "layers": layers,
+                    "count": len(layers)
+                }}
+            }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await self.execute_script(script)
