@@ -580,6 +580,259 @@ def register_tools() -> list[Tool]:
                 "required": ["zone_type", "bottom", "top"],
             },
         ),
+        # Phase 4: Path Manipulation & Boolean Operations
+        Tool(
+            name="union_shapes",
+            description="Union (combine) overlapping shapes in a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                },
+                "required": ["glyph_name"],
+            },
+        ),
+        Tool(
+            name="intersect_shapes",
+            description="Intersect shapes (keep only overlapping areas) in a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                },
+                "required": ["glyph_name"],
+            },
+        ),
+        Tool(
+            name="subtract_shapes",
+            description="Subtract the first shape from subsequent shapes in a glyph",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                },
+                "required": ["glyph_name"],
+            },
+        ),
+        Tool(
+            name="add_node",
+            description="Add a node to a contour at a specific position",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "contour_index": {
+                        "type": "integer",
+                        "description": "Contour index (0-based)",
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "X coordinate",
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "Y coordinate",
+                    },
+                    "node_type": {
+                        "type": "string",
+                        "description": "Node type",
+                        "enum": ["curve", "line", "move"],
+                        "default": "curve",
+                    },
+                },
+                "required": ["glyph_name", "contour_index", "x", "y"],
+            },
+        ),
+        Tool(
+            name="remove_node",
+            description="Remove a node from a contour",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "contour_index": {
+                        "type": "integer",
+                        "description": "Contour index (0-based)",
+                    },
+                    "node_index": {
+                        "type": "integer",
+                        "description": "Node index (0-based)",
+                    },
+                },
+                "required": ["glyph_name", "contour_index", "node_index"],
+            },
+        ),
+        Tool(
+            name="move_node",
+            description="Move an existing node to a new position",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "contour_index": {
+                        "type": "integer",
+                        "description": "Contour index (0-based)",
+                    },
+                    "node_index": {
+                        "type": "integer",
+                        "description": "Node index (0-based)",
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "New X coordinate",
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "New Y coordinate",
+                    },
+                },
+                "required": ["glyph_name", "contour_index", "node_index", "x", "y"],
+            },
+        ),
+        Tool(
+            name="convert_node_type",
+            description="Convert a node type (curve/line/corner)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "contour_index": {
+                        "type": "integer",
+                        "description": "Contour index (0-based)",
+                    },
+                    "node_index": {
+                        "type": "integer",
+                        "description": "Node index (0-based)",
+                    },
+                    "node_type": {
+                        "type": "string",
+                        "description": "Target node type",
+                        "enum": ["curve", "line", "move"],
+                    },
+                },
+                "required": ["glyph_name", "contour_index", "node_index", "node_type"],
+            },
+        ),
+        Tool(
+            name="smooth_node",
+            description="Toggle smooth property of a node",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "contour_index": {
+                        "type": "integer",
+                        "description": "Contour index (0-based)",
+                    },
+                    "node_index": {
+                        "type": "integer",
+                        "description": "Node index (0-based)",
+                    },
+                    "smooth": {
+                        "type": "boolean",
+                        "description": "Set smooth to true or false",
+                    },
+                },
+                "required": ["glyph_name", "contour_index", "node_index", "smooth"],
+            },
+        ),
+        Tool(
+            name="add_contour_from_points",
+            description="Create a new contour from a list of points",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "points": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "x": {"type": "number"},
+                                "y": {"type": "number"},
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["curve", "line", "move"],
+                                    "default": "curve",
+                                },
+                            },
+                            "required": ["x", "y"],
+                        },
+                        "description": "List of points for the contour",
+                    },
+                    "closed": {
+                        "type": "boolean",
+                        "description": "Whether the contour should be closed",
+                        "default": True,
+                    },
+                },
+                "required": ["glyph_name", "points"],
+            },
+        ),
+        Tool(
+            name="remove_contour",
+            description="Remove a contour from a glyph by index",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "contour_index": {
+                        "type": "integer",
+                        "description": "Contour index (0-based)",
+                    },
+                },
+                "required": ["glyph_name", "contour_index"],
+            },
+        ),
+        Tool(
+            name="simplify_paths",
+            description="Simplify/optimize contours in a glyph by removing unnecessary nodes",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "glyph_name": {
+                        "type": "string",
+                        "description": "Glyph name",
+                    },
+                    "tolerance": {
+                        "type": "number",
+                        "description": "Simplification tolerance (default 1.0)",
+                        "default": 1.0,
+                    },
+                },
+                "required": ["glyph_name"],
+            },
+        ),
     ]
 
 
@@ -688,6 +941,39 @@ async def handle_call_tool(
 
     elif name == "add_zone":
         result = await _add_zone(arguments, bridge)
+
+    elif name == "union_shapes":
+        result = await _union_shapes(arguments, bridge)
+
+    elif name == "intersect_shapes":
+        result = await _intersect_shapes(arguments, bridge)
+
+    elif name == "subtract_shapes":
+        result = await _subtract_shapes(arguments, bridge)
+
+    elif name == "add_node":
+        result = await _add_node(arguments, bridge)
+
+    elif name == "remove_node":
+        result = await _remove_node(arguments, bridge)
+
+    elif name == "move_node":
+        result = await _move_node(arguments, bridge)
+
+    elif name == "convert_node_type":
+        result = await _convert_node_type(arguments, bridge)
+
+    elif name == "smooth_node":
+        result = await _smooth_node(arguments, bridge)
+
+    elif name == "add_contour_from_points":
+        result = await _add_contour_from_points(arguments, bridge)
+
+    elif name == "remove_contour":
+        result = await _remove_contour(arguments, bridge)
+
+    elif name == "simplify_paths":
+        result = await _simplify_paths(arguments, bridge)
 
     else:
         raise ValueError(f"Unknown tool: {name}")
@@ -2270,4 +2556,780 @@ with open(sys.argv[-1], 'w') as f:
         return await bridge.execute_script(script)
     except ValidationError as e:
         logger.error(f"Validation error in add_zone: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+# Phase 4: Path Manipulation & Boolean Operations
+
+async def _union_shapes(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Union (combine) overlapping shapes in a glyph."""
+    try:
+        name = validate_glyph_name(args["glyph_name"])
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Union shapes (similar to removeOverlap but keeps all areas)
+                layer.removeOverlap()
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Shapes united successfully",
+                    "data": {{"name": {name_safe}, "shapes_count": len(layer.shapes)}}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in union_shapes: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _intersect_shapes(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Intersect shapes (keep only overlapping areas)."""
+    try:
+        name = validate_glyph_name(args["glyph_name"])
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            elif len(layer.shapes) < 2:
+                result = {{"success": False, "error": "Need at least 2 shapes to intersect"}}
+            else:
+                # Intersect shapes
+                if hasattr(layer, 'intersectShapes'):
+                    layer.intersectShapes()
+                    glyph.update()
+                    result = {{
+                        "success": True,
+                        "message": "Shapes intersected successfully",
+                        "data": {{"name": {name_safe}, "shapes_count": len(layer.shapes)}}
+                    }}
+                else:
+                    result = {{"success": False, "error": "Intersect operation not supported"}}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in intersect_shapes: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _subtract_shapes(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Subtract shapes."""
+    try:
+        name = validate_glyph_name(args["glyph_name"])
+        name_safe = sanitize_for_python(name)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            elif len(layer.shapes) < 2:
+                result = {{"success": False, "error": "Need at least 2 shapes to subtract"}}
+            else:
+                # Subtract shapes - reverse direction and remove overlaps
+                if len(layer.shapes) >= 2:
+                    for i in range(1, len(layer.shapes)):
+                        if hasattr(layer.shapes[i], 'reverse'):
+                            layer.shapes[i].reverse()
+                    layer.removeOverlap()
+                    glyph.update()
+                    result = {{
+                        "success": True,
+                        "message": "Shapes subtracted successfully",
+                        "data": {{"name": {name_safe}, "shapes_count": len(layer.shapes)}}
+                    }}
+                else:
+                    result = {{"success": False, "error": "Subtract operation failed"}}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in subtract_shapes: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_node(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Add a node to a contour."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        contour_index = validate_numeric_range(args["contour_index"], "contour_index", min_val=0, max_val=1000)
+        x = validate_numeric_range(args["x"], "x", min_val=-10000, max_val=10000)
+        y = validate_numeric_range(args["y"], "y", min_val=-10000, max_val=10000)
+        node_type = args.get("node_type", "curve")
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        contour_index_safe = sanitize_for_python(int(contour_index))
+        x_safe = sanitize_for_python(x)
+        y_safe = sanitize_for_python(y)
+        node_type_safe = sanitize_for_python(node_type)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace, flNode, NodeType
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Find contour
+                contour = None
+                contour_count = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        if contour_count == {contour_index_safe}:
+                            contour = shape
+                            break
+                        contour_count += 1
+
+                if contour is None:
+                    result = {{"success": False, "error": f"Contour index out of range: {contour_index_safe}"}}
+                else:
+                    # Create new node
+                    node = flNode()
+                    node.x = {x_safe}
+                    node.y = {y_safe}
+
+                    # Set node type
+                    if {node_type_safe} == "line":
+                        node.type = NodeType.Line
+                    elif {node_type_safe} == "move":
+                        node.type = NodeType.Move
+                    else:
+                        node.type = NodeType.Curve
+
+                    # Add node to contour
+                    contour.nodes.append(node)
+                    glyph.update()
+
+                    result = {{
+                        "success": True,
+                        "message": "Node added successfully",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "contour_index": {contour_index_safe},
+                            "position": [{x_safe}, {y_safe}],
+                            "type": {node_type_safe}
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_node: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _remove_node(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Remove a node from a contour."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        contour_index = validate_numeric_range(args["contour_index"], "contour_index", min_val=0, max_val=1000)
+        node_index = validate_numeric_range(args["node_index"], "node_index", min_val=0, max_val=10000)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        contour_index_safe = sanitize_for_python(int(contour_index))
+        node_index_safe = sanitize_for_python(int(node_index))
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Find contour
+                contour = None
+                contour_count = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        if contour_count == {contour_index_safe}:
+                            contour = shape
+                            break
+                        contour_count += 1
+
+                if contour is None:
+                    result = {{"success": False, "error": f"Contour index out of range: {contour_index_safe}"}}
+                elif {node_index_safe} >= len(contour.nodes):
+                    result = {{"success": False, "error": f"Node index out of range: {node_index_safe}"}}
+                elif len(contour.nodes) <= 2:
+                    result = {{"success": False, "error": "Cannot remove node - contour needs at least 2 nodes"}}
+                else:
+                    # Remove node
+                    contour.nodes.pop({node_index_safe})
+                    glyph.update()
+
+                    result = {{
+                        "success": True,
+                        "message": "Node removed successfully",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "contour_index": {contour_index_safe},
+                            "node_index": {node_index_safe}
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in remove_node: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _move_node(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Move a node to a new position."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        contour_index = validate_numeric_range(args["contour_index"], "contour_index", min_val=0, max_val=1000)
+        node_index = validate_numeric_range(args["node_index"], "node_index", min_val=0, max_val=10000)
+        x = validate_numeric_range(args["x"], "x", min_val=-10000, max_val=10000)
+        y = validate_numeric_range(args["y"], "y", min_val=-10000, max_val=10000)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        contour_index_safe = sanitize_for_python(int(contour_index))
+        node_index_safe = sanitize_for_python(int(node_index))
+        x_safe = sanitize_for_python(x)
+        y_safe = sanitize_for_python(y)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Find contour
+                contour = None
+                contour_count = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        if contour_count == {contour_index_safe}:
+                            contour = shape
+                            break
+                        contour_count += 1
+
+                if contour is None:
+                    result = {{"success": False, "error": f"Contour index out of range: {contour_index_safe}"}}
+                elif {node_index_safe} >= len(contour.nodes):
+                    result = {{"success": False, "error": f"Node index out of range: {node_index_safe}"}}
+                else:
+                    # Move node
+                    node = contour.nodes[{node_index_safe}]
+                    old_x = node.x if hasattr(node, 'x') else 0
+                    old_y = node.y if hasattr(node, 'y') else 0
+                    node.x = {x_safe}
+                    node.y = {y_safe}
+                    glyph.update()
+
+                    result = {{
+                        "success": True,
+                        "message": "Node moved successfully",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "contour_index": {contour_index_safe},
+                            "node_index": {node_index_safe},
+                            "old_position": [old_x, old_y],
+                            "new_position": [{x_safe}, {y_safe}]
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in move_node: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _convert_node_type(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Convert a node type."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        contour_index = validate_numeric_range(args["contour_index"], "contour_index", min_val=0, max_val=1000)
+        node_index = validate_numeric_range(args["node_index"], "node_index", min_val=0, max_val=10000)
+        node_type = args["node_type"]
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        contour_index_safe = sanitize_for_python(int(contour_index))
+        node_index_safe = sanitize_for_python(int(node_index))
+        node_type_safe = sanitize_for_python(node_type)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace, NodeType
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Find contour
+                contour = None
+                contour_count = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        if contour_count == {contour_index_safe}:
+                            contour = shape
+                            break
+                        contour_count += 1
+
+                if contour is None:
+                    result = {{"success": False, "error": f"Contour index out of range: {contour_index_safe}"}}
+                elif {node_index_safe} >= len(contour.nodes):
+                    result = {{"success": False, "error": f"Node index out of range: {node_index_safe}"}}
+                else:
+                    # Convert node type
+                    node = contour.nodes[{node_index_safe}]
+                    old_type = node.type.name if hasattr(node.type, 'name') else "unknown"
+
+                    if {node_type_safe} == "line":
+                        node.type = NodeType.Line
+                    elif {node_type_safe} == "move":
+                        node.type = NodeType.Move
+                    else:
+                        node.type = NodeType.Curve
+
+                    glyph.update()
+
+                    result = {{
+                        "success": True,
+                        "message": "Node type converted successfully",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "contour_index": {contour_index_safe},
+                            "node_index": {node_index_safe},
+                            "old_type": old_type,
+                            "new_type": {node_type_safe}
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in convert_node_type: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _smooth_node(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Toggle smooth property of a node."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        contour_index = validate_numeric_range(args["contour_index"], "contour_index", min_val=0, max_val=1000)
+        node_index = validate_numeric_range(args["node_index"], "node_index", min_val=0, max_val=10000)
+        smooth = args["smooth"]
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        contour_index_safe = sanitize_for_python(int(contour_index))
+        node_index_safe = sanitize_for_python(int(node_index))
+        smooth_safe = sanitize_for_python(smooth)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Find contour
+                contour = None
+                contour_count = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        if contour_count == {contour_index_safe}:
+                            contour = shape
+                            break
+                        contour_count += 1
+
+                if contour is None:
+                    result = {{"success": False, "error": f"Contour index out of range: {contour_index_safe}"}}
+                elif {node_index_safe} >= len(contour.nodes):
+                    result = {{"success": False, "error": f"Node index out of range: {node_index_safe}"}}
+                else:
+                    # Set smooth property
+                    node = contour.nodes[{node_index_safe}]
+                    node.smooth = {smooth_safe}
+                    glyph.update()
+
+                    result = {{
+                        "success": True,
+                        "message": "Node smooth property updated",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "contour_index": {contour_index_safe},
+                            "node_index": {node_index_safe},
+                            "smooth": {smooth_safe}
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in smooth_node: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _add_contour_from_points(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Create a new contour from a list of points."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        points = args["points"]
+        closed = args.get("closed", True)
+
+        if not isinstance(points, list) or len(points) < 2:
+            return {"success": False, "error": "Points must be a list with at least 2 points"}
+
+        # Validate points
+        validated_points = []
+        for point in points:
+            if not isinstance(point, dict):
+                return {"success": False, "error": "Each point must be a dictionary"}
+            x = validate_numeric_range(point["x"], "x", min_val=-10000, max_val=10000)
+            y = validate_numeric_range(point["y"], "y", min_val=-10000, max_val=10000)
+            point_type = point.get("type", "curve")
+            validated_points.append({"x": x, "y": y, "type": point_type})
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        points_safe = sanitize_for_python(validated_points)
+        closed_safe = sanitize_for_python(closed)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace, flContour, flNode, NodeType
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Create new contour
+                contour = flContour()
+                contour.closed = {closed_safe}
+
+                # Add nodes
+                for point in {points_safe}:
+                    node = flNode()
+                    node.x = point["x"]
+                    node.y = point["y"]
+
+                    # Set node type
+                    if point["type"] == "line":
+                        node.type = NodeType.Line
+                    elif point["type"] == "move":
+                        node.type = NodeType.Move
+                    else:
+                        node.type = NodeType.Curve
+
+                    contour.nodes.append(node)
+
+                # Add contour to layer
+                layer.addShape(contour)
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Contour added successfully",
+                    "data": {{
+                        "glyph": {glyph_name_safe},
+                        "nodes_count": len({points_safe}),
+                        "closed": {closed_safe}
+                    }}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in add_contour_from_points: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _remove_contour(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Remove a contour from a glyph by index."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        contour_index = validate_numeric_range(args["contour_index"], "contour_index", min_val=0, max_val=1000)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        contour_index_safe = sanitize_for_python(int(contour_index))
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Find and remove contour
+                contour_count = 0
+                removed = False
+                for i, shape in enumerate(layer.shapes):
+                    if hasattr(shape, 'isContour') and shape.isContour:
+                        if contour_count == {contour_index_safe}:
+                            layer.removeShape(i)
+                            removed = True
+                            break
+                        contour_count += 1
+
+                if not removed:
+                    result = {{"success": False, "error": f"Contour index out of range: {contour_index_safe}"}}
+                else:
+                    glyph.update()
+                    result = {{
+                        "success": True,
+                        "message": "Contour removed successfully",
+                        "data": {{
+                            "glyph": {glyph_name_safe},
+                            "contour_index": {contour_index_safe}
+                        }}
+                    }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in remove_contour: {e}")
+        return {"success": False, "error": f"Validation error: {e}"}
+
+
+async def _simplify_paths(args: dict[str, Any], bridge: FontLabBridge) -> dict[str, Any]:
+    """Simplify/optimize contours in a glyph."""
+    try:
+        glyph_name = validate_glyph_name(args["glyph_name"])
+        tolerance = validate_numeric_range(args.get("tolerance", 1.0), "tolerance", min_val=0.1, max_val=100.0)
+
+        glyph_name_safe = sanitize_for_python(glyph_name)
+        tolerance_safe = sanitize_for_python(tolerance)
+
+        script = f"""
+import json
+import sys
+
+try:
+    from fontlab import flWorkspace
+
+    font = flWorkspace.instance().currentFont()
+
+    if font is None:
+        result = {{"success": False, "error": "No font is currently open"}}
+    else:
+        glyph = font.findGlyph({glyph_name_safe})
+        if glyph is None:
+            result = {{"success": False, "error": f"Glyph not found: {glyph_name_safe}"}}
+        else:
+            layer = glyph.layers[0] if glyph.layers else None
+            if layer is None:
+                result = {{"success": False, "error": "Glyph has no layers"}}
+            else:
+                # Simplify paths
+                nodes_before = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour and hasattr(shape, 'nodes'):
+                        nodes_before += len(shape.nodes)
+
+                # Simplify operation
+                if hasattr(layer, 'simplify'):
+                    layer.simplify({tolerance_safe})
+
+                nodes_after = 0
+                for shape in layer.shapes:
+                    if hasattr(shape, 'isContour') and shape.isContour and hasattr(shape, 'nodes'):
+                        nodes_after += len(shape.nodes)
+
+                glyph.update()
+
+                result = {{
+                    "success": True,
+                    "message": "Paths simplified successfully",
+                    "data": {{
+                        "glyph": {glyph_name_safe},
+                        "tolerance": {tolerance_safe},
+                        "nodes_before": nodes_before,
+                        "nodes_after": nodes_after,
+                        "nodes_removed": nodes_before - nodes_after
+                    }}
+                }}
+except Exception as e:
+    result = {{"success": False, "error": str(e)}}
+
+with open(sys.argv[-1], 'w') as f:
+    json.dump(result, f)
+"""
+        return await bridge.execute_script(script)
+    except ValidationError as e:
+        logger.error(f"Validation error in simplify_paths: {e}")
         return {"success": False, "error": f"Validation error: {e}"}
